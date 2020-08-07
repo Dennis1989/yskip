@@ -106,6 +106,19 @@ inline bool approx_equal(real_t v1, real_t v2) {
 }
 
 
+inline float cosine_similarity(const std::vector<float> & A,const std::vector<float> & B)
+{
+    float dot = 0.0, denom_a = 0.0, denom_b = 0.0 ;
+    for(unsigned int i = 0; i < A.size(); ++i)
+    {
+        dot += A[i] * B[i] ;
+        denom_a += A[i] * A[i] ;
+        denom_b += B[i] * B[i] ;
+    }
+    return dot / (sqrt(denom_a) * sqrt(denom_b)) ;
+}
+
+
 /*
  * macros
  */

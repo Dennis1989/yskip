@@ -1,6 +1,8 @@
 /*******************************************
  * Copyright (C) 2017 Yahoo! JAPAN Research
  *******************************************/
+#include <pybind11/pybind11.h>
+#include <pybind11/stl.h>
 #include <stdio.h>
 #include <getopt.h>
 #include <stdlib.h>
@@ -13,8 +15,9 @@
 #include "skipgram.h"
 
 
-using namespace yskip;
 
+using namespace yskip;
+namespace py = pybind11;
 
 struct Configuration {
   int  train_method;
@@ -204,7 +207,7 @@ inline void asyc_sgd2(Skipgram& skipgram, const int start, const int end, const 
   real_t* grad;
   posix_memalign((void**)&grad, 128, sizeof(real_t)*skipgram.vec_size());
   for (int i = start; i < end; ++i) {
-    skipgram.train(mini_batch[i], false, grad, random);
+    //skipgram.train(mini_batch[i], random);
   }
   free(grad);
 }
@@ -315,7 +318,7 @@ inline int train_incremental(Skipgram& skipgram, const Configuration& config, Ra
   char line[BUFF_SIZE];
   while (fgets(line, BUFF_SIZE, is) != NULL) {
     line[strlen(line)-1] = '\0';
-    skipgram.train(tokenize(line), true, grad, random);
+    skipgram.train(line, random);
     ++sent_num;
     if (config.verbose) {
       print_progress(sent_num);
@@ -382,7 +385,6 @@ inline int train_mini_batch(Skipgram& skipgram, const Configuration& config, Ran
   return SUCCESS;
 }
 
-
 int main(int argc, char **argv) {
 
   /*
@@ -402,6 +404,7 @@ int main(int argc, char **argv) {
   }
   Random random(config.random_seed);
   Skipgram skipgram(option, random);
+    
   if (config.initial_model_file != NULL) {
     // configuration specified by the option is overwritten
     if (skipgram.load(config.initial_model_file, config.binary_mode) == FAILURE) {
@@ -439,3 +442,18 @@ int main(int argc, char **argv) {
   return SUCCESS;
 }
 
+PYBIND11_MODULE(yskip, m) {
+
+    m.doc() = "plugin for incremental skip gram model";
+
+    m.def("train_incremental", &train_incremental);
+
+    py::class_<Skipgram>(m, "skipgram").def(py::init()).def("train",&Skipgram::train).def("getvec",&Skipgram::getVectors).def("gettokenizedvec",&Skipgram::gettokenizedVectors).def("getclosest",&Skipgram::getClosestWord);
+
+    py::class_<Configuration>(m, "config").def(py::init()).def_readwrite("iter_num", &Configuration::iter_num);
+
+    py::class_<Random>(m, "random").def(py::init());
+
+
+  
+}

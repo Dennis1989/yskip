@@ -72,7 +72,10 @@ class Skipgram {
   void initialize(const Option& option, Random& random);
   void update_unigram_table(const std::vector<std::string>& text, Random& random);
   void update_unigram_table(const std::string& word, Random& random);
-  void train(const std::vector<std::string>& text, bool incremental, real_t* grad, Random& random);
+  std::vector<std::vector<float>> getVectors(const std::vector<std::string> words);
+  std::vector<std::vector<float>> gettokenizedVectors(const std::string text);
+  std::string getClosestWord(const std::string word);
+  void train(const std::string sentence , Random& random);
   void sgd(const int target, const int context, const std::vector<int>& neg_samples, real_t* grad);
   void rebuild_unigram_table(Random& random);
 
@@ -104,6 +107,7 @@ class Skipgram {
   real_t       eta_;
   int          unigram_table_size_;
   int          max_vocab_size_;
+  real_t*      grad;
 
   // embeddings
   Vocab     vocab_;
@@ -120,6 +124,95 @@ class Skipgram {
   void reduce_vocab(Random& random);
   DISALLOW_COPY_AND_ASSIGN(Skipgram);
 };
+
+// get closest distance of a word according to cosine similarity
+inline std::string Skipgram::getClosestWord(const std::string word){
+  std::string c_word = word.c_str();
+  std::vector<std::string> vocab = vocab_.all();
+  float closestsim = 0;
+  int result = 0;
+  std::vector<float> embedding;
+  //iterate over complete vocab to find word
+  for(int i=0; i< vocab.size();++i){
+      if(vocab[i].c_str() == c_word){
+         for(int k = 0 ; k < vec_size_; ++k){
+            embedding.push_back(vec_.input[i][k]);
+        }
+        break;
+      }
+  }
+  // now again iterate over vocab, generate embedding and calcualte cosine distance
+  for(int i=0; i< vocab.size();++i){
+  std::vector<float> help;
+    for(int k = 0 ; k < vec_size_; ++k){
+            help.push_back(vec_.input[i][k]);
+    }
+    float sim = cosine_similarity(help,embedding);
+    if(sim > closestsim && sim<1){
+      closestsim = sim;
+      result = i;
+    }
+  }
+  return(vocab[result].c_str());
+}
+
+// print out word embeddings for a tokenized text
+inline std::vector<std::vector<float>> Skipgram::getVectors(const std::vector<std::string> words){
+  std::vector<std::vector<float>> result;
+  std::vector<std::string> vocab = vocab_.all();
+  // check each string
+  for (int j = 0; j < words.size(); ++j) {
+    std::vector<float> vect;
+    // for each word in vocabulary
+    for (int index = 0; index < vocab.size(); ++index) {
+      // if word is in vocab, add embedding vector
+      if(vocab[index].c_str() == words[j]){
+        for(int k = 0 ; k < vec_size_; ++k){
+            vect.push_back(vec_.input[index][k]);
+        }
+         result.push_back(vect);
+        // We found the word therefore we can break
+        break;
+      }
+    }
+  }
+  return result;
+}
+
+
+
+// print out word embeddings for a tokenized text
+inline std::vector<std::vector<float>> Skipgram::gettokenizedVectors(const std::string sentence){
+  std::vector<std::vector<float>> result;
+  std::vector<std::string> text = tokenize(sentence.c_str());
+  std::vector<std::string> words = vocab_.all();
+  bool wasin=false;
+  // check each string
+  for (int j = 0; j < text.size(); ++j) {
+    wasin = false;
+    std::vector<float> vect;
+    // for each word in vocabulary
+    for (int index = 0; index < words.size(); ++index) {
+      // if word is in vocab, add embedding vector
+      if(words[index].c_str() == text[j]){
+        for(int k = 0 ; k < vec_size_; ++k){
+            vect.push_back(vec_.input[index][k]);
+        }
+        wasin = true;
+      }
+     //
+    }
+    
+    // if word was not in vocabulary return 0 string else ignore this
+    if (wasin == false){
+     for(int k = 0 ; k < vec_size_; ++k){
+            vect.push_back(0.0f);
+        }
+    }
+    result.push_back(vect);
+  }
+  return result;
+}
 
 
 inline Skipgram::Option::Option() {
@@ -140,6 +233,8 @@ inline Skipgram::Skipgram() {
   Option option;
   Random random;
   this->initialize(option, random);
+  posix_memalign((void**)&this->grad, 128, sizeof(real_t)*this->vec_size());
+  std::cout<<"done init"<<std::endl;
 }
 
 
@@ -194,9 +289,55 @@ inline void Skipgram::initialize(const Option& option, Random& random) {
 }
 
 
+// train method for already tokenized text
+inline void Skipgram::train_tokenized(const std::vector<std::string> text, Random& random) {
+  bool incremental = true;
+  real_t* grad = this->grad;
+  int n = text.size();
+  std::vector<int> neg_samples(neg_sample_num_);
+  for (int target = 0; target < n; ++target) {
+    //  incrementally update unigram table
+    if (incremental) {
+      update_unigram_table(text[target], random);
+    }
 
-inline void Skipgram::train(const std::vector<std::string>& text, bool incremental, real_t* grad, Random& random) {
+    //
+    int target_index = vocab_.encode(text[target]);
+    if (target_index == -1) continue; // ignore unknown word
+    
+    //
+    int random_window_size = random.uniform(1, window_size_ + 1);
+    for (int offset = -random_window_size; offset < random_window_size; ++offset) {
+      if (offset == 0 || target + offset < 0) continue;
+      if (target + offset == n) break;
 
+      //
+      int context_index = vocab_.encode(text[target + offset]);
+      if (context_index == -1) continue;  // ignore unknown word
+
+      // perform subsampling
+      if (0 < counts_[context_index] && sqrt(subsampling_threshold_*static_cast<real_t>(total_count_)/static_cast<real_t>(counts_[context_index])) < random.uniform(0.0, 1.0)) continue;
+
+      // collecting negative samples
+      for (int k = 0; k < neg_sample_num_; ++k) {
+	neg_samples[k] = unigram_table_.sample(random);
+	if (neg_samples[k] < 0 || max_vocab_size_ <= neg_samples[k]) {
+	  fprintf(stderr, "%d\n", neg_samples[k]);
+	}
+      }
+
+      // perform SGD
+      sgd(target_index, context_index, neg_samples, grad);
+    }
+  }
+}
+
+
+
+inline void Skipgram::train(const std::string sentence , Random& random) {
+  bool incremental = true;
+  real_t* grad = this->grad;
+  std::vector<std::string> text = tokenize(sentence.c_str());
   int n = text.size();
   std::vector<int> neg_samples(neg_sample_num_);
   for (int target = 0; target < n; ++target) {
@@ -482,6 +623,7 @@ inline int Skipgram::load_text(const char* filename) {
 
   return SUCCESS;
 }
+
 
 
 //
