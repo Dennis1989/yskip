@@ -72,10 +72,15 @@ class Skipgram {
   void initialize(const Option& option, Random& random);
   void update_unigram_table(const std::vector<std::string>& text, Random& random);
   void update_unigram_table(const std::string& word, Random& random);
+  
+  std::unordered_map<std::string, std::vector<float>> getVocabEmbedding();
   std::vector<std::vector<float>> getVectors(const std::vector<std::string> words);
+  std::vector<std::vector<float>> getVectorsFast(const std::vector<std::string> words);
   std::vector<std::vector<float>> gettokenizedVectors(const std::string text);
   std::string getClosestWord(const std::string word);
+  
   void train(const std::string sentence , Random& random);
+  void train_tokenized(const std::vector<std::string> text, Random& random);
   void sgd(const int target, const int context, const std::vector<int>& neg_samples, real_t* grad);
   void rebuild_unigram_table(Random& random);
 
@@ -108,12 +113,15 @@ class Skipgram {
   int          unigram_table_size_;
   int          max_vocab_size_;
   real_t*      grad;
+  //hashmap
+  bool current_state;
 
   // embeddings
   Vocab     vocab_;
   Parameter vec_;
   Parameter squared_grad_;
-  
+  std::unordered_map<std::string, std::vector<float>> hashedVocab;
+
   // word count
   count_t              total_count_;
   std::vector<count_t> counts_;
@@ -154,6 +162,36 @@ inline std::string Skipgram::getClosestWord(const std::string word){
     }
   }
   return(vocab[result].c_str());
+}
+
+
+// save vocab embedding
+std::unordered_map<std::string, std::vector<float>> Skipgram::getVocabEmbedding(){
+  std::unordered_map<std::string, std::vector<float>> result;
+  std::vector<std::string> vocab = vocab_.all();
+
+  for (int index = 0; index < vocab.size(); ++index) {
+      std::vector<float> vect;
+      for(int k = 0 ; k < vec_size_; ++k){
+            vect.push_back(vec_.input[index][k]);
+        }
+        result[vocab[index].c_str()] = vect;
+  }
+  return result;
+}
+
+//fast version of getVectorrs
+inline std::vector<std::vector<float>> Skipgram::getVectorsFast(const std::vector<std::string> words){
+std::unordered_map<std::string, std::vector<float>> vocab;
+std::vector<std::vector<float>> result;
+if(current_state == false){
+  hashedVocab = getVocabEmbedding();
+}
+for (int j = 0; j < words.size(); ++j) {
+  result.push_back(hashedVocab[words[j]]);
+}
+current_state = true;
+  return result;
 }
 
 // print out word embeddings for a tokenized text
@@ -335,6 +373,7 @@ inline void Skipgram::train_tokenized(const std::vector<std::string> text, Rando
 
 
 inline void Skipgram::train(const std::string sentence , Random& random) {
+  current_state = false;
   bool incremental = true;
   real_t* grad = this->grad;
   std::vector<std::string> text = tokenize(sentence.c_str());

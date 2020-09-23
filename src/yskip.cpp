@@ -448,7 +448,7 @@ PYBIND11_MODULE(yskip, m) {
 
     m.def("train_incremental", &train_incremental);
 
-    py::class_<Skipgram>(m, "skipgram").def(py::init()).def("train",&Skipgram::train).def("getvec",&Skipgram::getVectors).def("gettokenizedvec",&Skipgram::gettokenizedVectors).def("getclosest",&Skipgram::getClosestWord);
+    py::class_<Skipgram>(m, "skipgram").def(py::init()).def("train",&Skipgram::train).def("train_tokenized",&Skipgram::train_tokenized).def("getvec",&Skipgram::getVectors).def("getvecFast",&Skipgram::getVectorsFast).def("gettokenizedvec",&Skipgram::gettokenizedVectors).def("getclosest",&Skipgram::getClosestWord);
 
     py::class_<Configuration>(m, "config").def(py::init()).def_readwrite("iter_num", &Configuration::iter_num);
 
